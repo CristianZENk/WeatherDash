@@ -9,7 +9,7 @@ import {
 import {
   getCurrentSessionUser,
   getTopRecommendedCities,
-  getWarmForecastAlerts,
+  getWeatherAlertsAndRecommendations,
   loginUser,
   logoutUser,
   recordCitySearch,
@@ -21,7 +21,7 @@ import { UnitToggle } from './components/UnitToggle';
 import { CurrentWeatherCard } from './components/CurrentWeatherCard';
 import { ForecastList } from './components/ForecastList';
 import { AccountModal } from './components/AccountModal';
-import { WarmAlertBanner } from './components/WarmAlertBanner';
+import { WeatherAlertsBanner } from './components/WeatherAlertsBanner';
 import { RecommendationBanner } from './components/RecommendationBanner';
 
 const STORAGE_UNIT_KEY = 'weatherdash_unit';
@@ -214,7 +214,7 @@ export default function App() {
   };
 
   const topRecommendedCities = user ? getTopRecommendedCities(user, 3) : [];
-  const warmAlertDays = user && weather ? getWarmForecastAlerts(user, weather.forecast) : [];
+  const weatherAlerts = user && weather ? getWeatherAlertsAndRecommendations(user, weather.forecast) : [];
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
@@ -333,11 +333,7 @@ export default function App() {
           <div className="mt-5">
             <CurrentWeatherCard weather={weather} unit={unit} />
 
-            <WarmAlertBanner
-              warmDays={warmAlertDays}
-              thresholdC={user?.warmThresholdC ?? 20}
-              unit={unit}
-            />
+            <WeatherAlertsBanner alerts={weatherAlerts} unit={unit} />
 
             <ForecastList forecast={weather.forecast} unit={unit} />
 

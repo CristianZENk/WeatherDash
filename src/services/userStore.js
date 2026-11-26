@@ -33,7 +33,16 @@ export function getCurrentSessionUser() {
   }
 }
 
-export function registerUser({ username, password, weatherPreference = 'warm', warmThresholdC = 20, preferredUnit = 'metric' }) {
+export function registerUser({
+  username,
+  password,
+  weatherPreference = 'warm',
+  warmThresholdC = 20,
+  coldThresholdC = 5,
+  rainAlertEnabled = true,
+  snowAlertEnabled = true,
+  preferredUnit = 'metric',
+}) {
   const cleanName = username.trim();
   const key = normalizeUsername(cleanName);
 
@@ -56,6 +65,10 @@ export function registerUser({ username, password, weatherPreference = 'warm', w
     weatherPreference,
     warmAlertEnabled: weatherPreference === 'warm',
     warmThresholdC,
+    coldAlertEnabled: weatherPreference === 'cool',
+    coldThresholdC,
+    rainAlertEnabled,
+    snowAlertEnabled,
     searchHistory: {},
     createdAt: new Date().toISOString(),
   };
@@ -141,11 +154,64 @@ export function getTopRecommendedCities(user, limit = 3) {
     .slice(0, limit);
 }
 
-export function getWarmForecastAlerts(user, forecast) {
+export function getWeatherAlertsAndRecommendations(user, forecast) {
   if (!user || !Array.isArray(forecast) || forecast.length === 0) return [];
-  const wantsWarmAlert = user.weatherPreference === 'warm' || user.warmAlertEnabled;
-  if (!wantsWarmAlert) return [];
 
-  const thresholdC = typeof user.warmThresholdC === 'number' ? user.warmThresholdC : 20;
-  return forecast.filter((day) => day.maxC >= thresholdC);
+  const alerts = [];
+  const wantsWarm = user.weatherPreference === 'warm' || user.warmAlertEnabled;
+  const wantsCold = user.weatherPreference === 'cool' || user.coldAlertEnabled;
+  const wantsRain = user.rainAlertEnabled !== false;
+  const wantsSnow = user.snowAlertEnabled !== false;
+
+  if (wantsWarm) {
+    const thresholdC = typeof user.warmThresholdC === 'number' ? user.warmThresholdC : 20;
+    const warmDays = forecast.filter((day) => day.maxC >= thresholdC);
+    if (warmDays.length > 0) {
+      alerts.push({
+        type: 'warm',
+        thresholdC,
+        days: warmDays,
+        recommendation: 'Great conditions for outdoor plans — lighter layers recommended.',
+      });
+    }
+  }
+
+  if (wantsCold) {
+    const thresholdC = typeof user.coldThresholdC === 'number' ? user.coldThresholdC : 5;
+    const coldDays = forecast.filter((day) => day.minC <= thresholdC);
+    if (coldDays.length > 0) {
+      alerts.push({
+        type: 'cold',
+        thresholdC,
+        days: coldDays,
+        recommendation: 'Chilly temperatures ahead — wear a warm coat and insulated layers.',
+      });
+    }
+  }
+
+  if (wantsRain) {
+    const rainDays = forecast.filter(
+      (day) => day.condition?.icon === 'rain' || day.condition?.icon === 'rain-heavy'
+    );
+    if (rainDays.length > 0) {
+      alerts.push({
+        type: 'rain',
+        days: rainDays,
+        recommendation: 'Bring an umbrella or waterproof jacket when heading out.',
+      });
+    }
+  }
+
+  if (wantsSnow) {
+    const snowDays = forecast.filter((day) => day.condition?.icon === 'snow');
+    if (snowDays.length > 0) {
+      alerts.push({
+        type: 'snow',
+        days: snowDays,
+        recommendation: 'Snowy weather expected — dress warmly and allow extra travel time.',
+      });
+    }
+  }
+
+  return alerts;
 }

@@ -1,141 +1,248 @@
-import { useEffect, useState, useCallback } from 'react';
-import SearchBar from './components/SearchBar';
-import UnitToggle from './components/UnitToggle';
-import CurrentWeather from './components/CurrentWeather';
-import ForecastList from './components/ForecastList';
-import ErrorBanner from './components/ErrorBanner';
+import { useCallback, useEffect, useState } from 'react';
+import { AlertCircle, CloudSun, RefreshCw } from 'lucide-react';
 import {
-  fetchWeatherByCity,
   fetchWeatherByCoords,
-  hasValidApiKey,
-} from './services/weatherService';
-import {
-  getSavedCity,
-  saveCity,
-  getSavedUnit,
-  saveUnit,
-  getCurrentCoordinates,
-} from './utils/storage';
+  geocodeLocation,
+  getDemoWeather,
+  reverseGeocode,
+} from './services/weatherApi';
+import { SearchBar } from './components/SearchBar';
+import { UnitToggle } from './components/UnitToggle';
+import { CurrentWeatherCard } from './components/CurrentWeatherCard';
+import { ForecastList } from './components/ForecastList';
 
-const DEFAULT_FALLBACK_CITY = 'London';
+const STORAGE_UNIT_KEY = 'weatherdash_unit';
+const STORAGE_LOCATION_KEY = 'weatherdash_last_city';
+const DEFAULT_LOCATION = { name: 'Bucharest', country: 'RO', lat: 44.4268, lng: 26.1025 };
+
+function loadSavedUnit() {
+  try {
+    const saved = localStorage.getItem(STORAGE_UNIT_KEY);
+    return saved === 'imperial' ? 'imperial' : 'metric';
+  } catch {
+    return 'metric';
+  }
+}
+
+function loadSavedLocation() {
+  try {
+    const raw = localStorage.getItem(STORAGE_LOCATION_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (typeof parsed?.lat === 'number' && typeof parsed?.lng === 'number' && parsed?.name) {
+      return parsed;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function saveLocation(loc) {
+  try {
+    localStorage.setItem(STORAGE_LOCATION_KEY, JSON.stringify(loc));
+  } catch {
+    // Ignore storage errors
+  }
+}
 
 export default function App() {
-  const [weatherData, setWeatherData] = useState(null);
-  const [forecastData, setForecastData] = useState([]);
-  const [unit, setUnit] = useState(() => getSavedUnit());
+  const [unit, setUnit] = useState(loadSavedUnit);
+  const [weather, setWeather] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [lastQuery, setLastQuery] = useState('');
 
-  const loadByCity = useCallback(async (city, targetUnit) => {
+  const loadForCoords = useCallback(async (locationInfo, options = {}) => {
     setLoading(true);
     setError(null);
     try {
-      const result = await fetchWeatherByCity(city, targetUnit);
-      setWeatherData(result.current);
-      setForecastData(result.forecast);
-      saveCity(result.current.city);
+      const data = await fetchWeatherByCoords(
+        locationInfo.lat,
+        locationInfo.lng,
+        locationInfo,
+        options
+      );
+      setWeather(data);
+      saveLocation(locationInfo);
     } catch (err) {
-      setError(err.message || 'Unable to fetch weather data.');
+      setError({
+        message: err.message || 'Failed to load weather data.',
+        code: err.code || 'UNKNOWN',
+      });
     } finally {
       setLoading(false);
     }
   }, []);
 
-  const loadByGeolocation = useCallback(async (targetUnit) => {
+  const handleDetectLocation = useCallback(() => {
+    if (!('geolocation' in navigator)) {
+      setError({
+        message: 'Geolocation is not supported by your browser. Search for a city instead.',
+        code: 'GEO_UNSUPPORTED',
+      });
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const { latitude, longitude } = pos.coords;
+        const place = await reverseGeocode(latitude, longitude);
+        await loadForCoords({
+          name: place.name,
+          country: place.country,
+          lat: latitude,
+          lng: longitude,
+        });
+      },
+      () => {
+        // Graceful fallback to last saved or default city
+        const saved = loadSavedLocation() || DEFAULT_LOCATION;
+        loadForCoords(saved);
+      },
+      { timeout: 6000 }
+    );
+  }, [loadForCoords]);
+
+  useEffect(() => {
+    const saved = loadSavedLocation();
+    if (saved) {
+      loadForCoords(saved);
+      return;
+    }
+    if ('geolocation' in navigator) {
+      handleDetectLocation();
+    } else {
+      loadForCoords(DEFAULT_LOCATION);
+    }
+  }, [handleDetectLocation, loadForCoords]);
+
+  const handleSearch = async (query) => {
+    setLastQuery(query);
     setLoading(true);
     setError(null);
     try {
-      const { lat, lon } = await getCurrentCoordinates();
-      const result = await fetchWeatherByCoords(lat, lon, targetUnit);
-      setWeatherData(result.current);
-      setForecastData(result.forecast);
-      saveCity(result.current.city);
-    } catch {
-      // Graceful fallback to default city if geolocation is denied or unavailable
-      await loadByCity(DEFAULT_FALLBACK_CITY, targetUnit);
-      return;
+      const loc = await geocodeLocation(query);
+      await loadForCoords(loc);
+    } catch (err) {
+      setError({
+        message: err.message || 'Unable to find that location.',
+        code: err.code || 'UNKNOWN',
+      });
+      setLoading(false);
     }
-    setLoading(false);
-  }, [loadByCity]);
+  };
 
-  useEffect(() => {
-    const savedCity = getSavedCity();
-    if (savedCity) {
-      loadByCity(savedCity, unit);
-    } else {
-      loadByGeolocation(unit);
-    }
-    // Run only on initial mount
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  function handleSearch(query) {
-    loadByCity(query, unit);
-  }
-
-  function handleUseLocation() {
-    loadByGeolocation(unit);
-  }
-
-  function handleUnitToggle(nextUnit) {
+  const handleUnitChange = (nextUnit) => {
     setUnit(nextUnit);
-    saveUnit(nextUnit);
-    const activeCity = weatherData?.city || getSavedCity() || DEFAULT_FALLBACK_CITY;
-    loadByCity(activeCity, nextUnit);
-  }
+    try {
+      localStorage.setItem(STORAGE_UNIT_KEY, nextUnit);
+    } catch {
+      // Ignore storage errors
+    }
+  };
+
+  const handleLoadDemo = () => {
+    setError(null);
+    setWeather(getDemoWeather(lastQuery || 'Bucharest'));
+    setLoading(false);
+  };
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900">
-      <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6 sm:py-12">
-        <header className="mb-6 flex items-center justify-between gap-4">
-          <div>
-            <h1 className="text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">
-              WeatherDash
-            </h1>
-            <p className="text-xs text-slate-500">
-              Minimal real-time weather &amp; 3-day outlook
-            </p>
+    <div className="min-h-screen bg-slate-50 flex flex-col">
+      <main className="flex-1 w-full max-w-2xl mx-auto px-4 py-8 sm:py-12">
+        <header className="flex items-center justify-between gap-4 mb-6">
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-xl bg-sky-600 text-white flex items-center justify-center shadow-xs">
+              <CloudSun className="w-5 h-5" aria-hidden="true" />
+            </div>
+            <div>
+              <h1 className="text-lg font-bold tracking-tight text-slate-900 leading-none">
+                WeatherDash
+              </h1>
+              <p className="text-xs text-slate-500 mt-0.5">Minimalist real-time forecast</p>
+            </div>
           </div>
-          <UnitToggle unit={unit} onToggle={handleUnitToggle} disabled={loading} />
+
+          <UnitToggle unit={unit} onChange={handleUnitChange} />
         </header>
 
-        <main className="space-y-5">
-          <SearchBar
-            onSearch={handleSearch}
-            onUseLocation={handleUseLocation}
-            loading={loading}
-          />
+        <SearchBar
+          onSearch={handleSearch}
+          onDetectLocation={handleDetectLocation}
+          isLoading={loading}
+        />
 
-          <ErrorBanner
-            error={error}
-            loading={loading}
-            onDismiss={() => setError(null)}
-          />
+        {error && (
+          <div
+            role="alert"
+            className="mt-5 rounded-2xl border border-rose-200 bg-rose-50/90 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+          >
+            <div className="flex items-start gap-2.5 text-rose-800 text-sm">
+              <AlertCircle className="w-4 h-4 mt-0.5 shrink-0 text-rose-600" aria-hidden="true" />
+              <span>{error.message}</span>
+            </div>
+            {(error.code === 'RATE_LIMIT' ||
+              error.code === 'MISSING_KEY' ||
+              error.code === 'AUTH' ||
+              error.code === 'NETWORK') && (
+              <button
+                type="button"
+                onClick={handleLoadDemo}
+                className="self-start sm:self-center shrink-0 px-3 py-1.5 rounded-lg bg-white border border-rose-200 text-xs font-semibold text-rose-700 hover:bg-rose-100 transition cursor-pointer"
+              >
+                Load Demo Data
+              </button>
+            )}
+          </div>
+        )}
 
-          {!weatherData && loading ? (
-            <div className="h-56 animate-pulse rounded-2xl border border-slate-200/70 bg-white/80" />
-          ) : (
-            <>
-              <CurrentWeather data={weatherData} unit={unit} />
-              <ForecastList forecast={forecastData} unit={unit} />
-            </>
-          )}
-        </main>
+        {loading && (
+          <div className="mt-5 space-y-4 animate-pulse" aria-busy="true" aria-label="Loading weather">
+            <div className="h-52 rounded-2xl bg-white border border-slate-200/80 p-6 flex flex-col justify-between">
+              <div className="space-y-3">
+                <div className="h-3 w-28 bg-slate-200 rounded" />
+                <div className="h-12 w-36 bg-slate-200 rounded" />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="h-14 bg-slate-100 rounded-xl" />
+                <div className="h-14 bg-slate-100 rounded-xl" />
+              </div>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="h-24 bg-white border border-slate-200/80 rounded-2xl" />
+              <div className="h-24 bg-white border border-slate-200/80 rounded-2xl" />
+              <div className="h-24 bg-white border border-slate-200/80 rounded-2xl" />
+            </div>
+          </div>
+        )}
 
-        <footer className="mt-10 border-t border-slate-200/70 pt-4 text-center text-xs text-slate-400">
-          {hasValidApiKey() ? (
-            <span>Powered by OpenWeatherMap REST API</span>
-          ) : (
-            <span>
-              Prototype Demo Mode active · Add{' '}
-              <code className="rounded bg-slate-100 px-1 py-0.5 text-slate-600">
-                VITE_OPENWEATHER_API_KEY
-              </code>{' '}
-              in <code className="rounded bg-slate-100 px-1 py-0.5 text-slate-600">.env</code> for live data
-            </span>
-          )}
-        </footer>
-      </div>
+        {!loading && weather && (
+          <div className="mt-5">
+            <CurrentWeatherCard weather={weather} unit={unit} />
+            <ForecastList forecast={weather.forecast} unit={unit} />
+
+            <div className="mt-4 flex items-center justify-between px-1 text-xs text-slate-400">
+              <span>
+                Parsed in {weather.meta.parseMs} ms
+                {weather.meta.quotaRemaining !== null
+                  ? ` · Daily quota left: ${weather.meta.quotaRemaining}`
+                  : ''}
+              </span>
+              <button
+                type="button"
+                onClick={() => loadForCoords(weather.location, { forceRefresh: true })}
+                className="inline-flex items-center gap-1 text-slate-500 hover:text-slate-800 transition cursor-pointer"
+              >
+                <RefreshCw className="w-3 h-3" aria-hidden="true" />
+                Refresh
+              </button>
+            </div>
+          </div>
+        )}
+      </main>
     </div>
   );
 }

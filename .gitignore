@@ -1,15 +1,17 @@
-# Dependencies
+# Dependencies & build output
 node_modules/
-
-# Build output
 dist/
 dist-ssr/
 
-# Environment variables
+# Environment variables (never commit API keys)
 .env
 .env.local
 .env.*.local
+!.env.example
 
-# Editor / OS
+# Editor & OS files
+.vscode/
 .DS_Store
+Thumbs.db
+*.log
 *.local

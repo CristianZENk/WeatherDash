@@ -1,4 +1,4 @@
-export default function UnitToggle({ unit, onToggle, disabled }) {
+export function UnitToggle({ unit, onChange }) {
   return (
     <div
       className="inline-flex items-center rounded-xl border border-slate-200 bg-white p-1 shadow-xs"
@@ -7,12 +7,10 @@ export default function UnitToggle({ unit, onToggle, disabled }) {
     >
       <button
         type="button"
-        onClick={() => unit !== 'metric' && onToggle('metric')}
-        disabled={disabled}
-        aria-pressed={unit === 'metric'}
-        className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition cursor-pointer disabled:cursor-not-allowed ${
+        onClick={() => onChange('metric')}
+        className={`px-3 py-1 rounded-lg text-xs font-semibold transition cursor-pointer ${
           unit === 'metric'
-            ? 'bg-sky-600 text-white shadow-xs'
+            ? 'bg-slate-900 text-white shadow-xs'
             : 'text-slate-600 hover:text-slate-900'
         }`}
       >
@@ -20,12 +18,10 @@ export default function UnitToggle({ unit, onToggle, disabled }) {
       </button>
       <button
         type="button"
-        onClick={() => unit !== 'imperial' && onToggle('imperial')}
-        disabled={disabled}
-        aria-pressed={unit === 'imperial'}
-        className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition cursor-pointer disabled:cursor-not-allowed ${
+        onClick={() => onChange('imperial')}
+        className={`px-3 py-1 rounded-lg text-xs font-semibold transition cursor-pointer ${
           unit === 'imperial'
-            ? 'bg-sky-600 text-white shadow-xs'
+            ? 'bg-slate-900 text-white shadow-xs'
             : 'text-slate-600 hover:text-slate-900'
         }`}
       >

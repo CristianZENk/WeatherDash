@@ -1,0 +1,44 @@
+WeatherDash - How to Run on a New Computer
+===========================================
+
+Prerequisites
+-------------
+1. Node.js (v18 or newer recommended, includes npm): https://nodejs.org/
+2. Git: https://git-scm.com/
+
+Setup Steps
+-----------
+1. Clone the repository from GitHub and open the project folder:
+   git clone https://github.com/CristianZENk/WeatherDash.git
+   cd WeatherDash
+
+2. Install dependencies (node_modules is not tracked in Git):
+   npm install
+
+   Note for Windows PowerShell:
+   If "npm" fails with an execution policy error, use "npm.cmd" instead:
+   npm.cmd install
+
+3. Configure environment variables (.env is not tracked in Git):
+   - Copy .env.example to .env:
+     macOS/Linux/Git Bash: cp .env.example .env
+     Windows PowerShell:   Copy-Item .env.example .env
+
+   - Open .env and set your Stormglass API key:
+     VITE_STORMGLASS_API_KEY=your_stormglass_api_key_here
+
+   If VITE_STORMGLASS_API_KEY is left empty or reaches the daily quota,
+   WeatherDash offers an interactive Demo Mode fallback button.
+
+4. Start the development server:
+   npm run dev
+   (or "npm.cmd run dev" on Windows PowerShell)
+
+5. Open the URL shown in the terminal (usually http://localhost:5173)
+   in your web browser.
+
+Production Build (Optional)
+---------------------------
+To build and preview the production bundle:
+   npm run build
+   npm run preview

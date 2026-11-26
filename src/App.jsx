@@ -1,21 +1,37 @@
 import { useCallback, useEffect, useState } from 'react';
-import { AlertCircle, CloudSun, RefreshCw } from 'lucide-react';
+import { AlertCircle, CloudSun, LogOut, RefreshCw, User } from 'lucide-react';
 import {
   fetchWeatherByCoords,
   geocodeLocation,
   getDemoWeather,
   reverseGeocode,
 } from './services/weatherApi';
+import {
+  getCurrentSessionUser,
+  getTopRecommendedCities,
+  getWarmForecastAlerts,
+  loginUser,
+  logoutUser,
+  recordCitySearch,
+  registerUser,
+  updateUserPreferences,
+} from './services/userStore';
 import { SearchBar } from './components/SearchBar';
 import { UnitToggle } from './components/UnitToggle';
 import { CurrentWeatherCard } from './components/CurrentWeatherCard';
 import { ForecastList } from './components/ForecastList';
+import { AccountModal } from './components/AccountModal';
+import { WarmAlertBanner } from './components/WarmAlertBanner';
+import { RecommendationBanner } from './components/RecommendationBanner';
 
 const STORAGE_UNIT_KEY = 'weatherdash_unit';
 const STORAGE_LOCATION_KEY = 'weatherdash_last_city';
 const DEFAULT_LOCATION = { name: 'Bucharest', country: 'RO', lat: 44.4268, lng: 26.1025 };
 
-function loadSavedUnit() {
+function loadSavedUnit(sessionUser) {
+  if (sessionUser?.preferredUnit === 'imperial' || sessionUser?.preferredUnit === 'metric') {
+    return sessionUser.preferredUnit;
+  }
   try {
     const saved = localStorage.getItem(STORAGE_UNIT_KEY);
     return saved === 'imperial' ? 'imperial' : 'metric';
@@ -47,11 +63,16 @@ function saveLocation(loc) {
 }
 
 export default function App() {
-  const [unit, setUnit] = useState(loadSavedUnit);
+  const [user, setUser] = useState(() => getCurrentSessionUser());
+  const [unit, setUnit] = useState(() => loadSavedUnit(getCurrentSessionUser()));
   const [weather, setWeather] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [lastQuery, setLastQuery] = useState('');
+  const [accountModalOpen, setAccountModalOpen] = useState(false);
+  const [showRecommendation, setShowRecommendation] = useState(() =>
+    Boolean(getCurrentSessionUser())
+  );
 
   const loadForCoords = useCallback(async (locationInfo, options = {}) => {
     setLoading(true);
@@ -98,7 +119,6 @@ export default function App() {
         });
       },
       () => {
-        // Graceful fallback to last saved or default city
         const saved = loadSavedLocation() || DEFAULT_LOCATION;
         loadForCoords(saved);
       },
@@ -125,6 +145,10 @@ export default function App() {
     setError(null);
     try {
       const loc = await geocodeLocation(query);
+      if (user?.username) {
+        const updatedUser = recordCitySearch(user.username, loc);
+        if (updatedUser) setUser(updatedUser);
+      }
       await loadForCoords(loc);
     } catch (err) {
       setError({
@@ -142,6 +166,45 @@ export default function App() {
     } catch {
       // Ignore storage errors
     }
+    if (user?.username) {
+      const updated = updateUserPreferences(user.username, { preferredUnit: nextUnit });
+      if (updated) setUser(updated);
+    }
+  };
+
+  const handleLogin = (credentials) => {
+    const loggedIn = loginUser(credentials);
+    setUser(loggedIn);
+    if (loggedIn.preferredUnit === 'imperial' || loggedIn.preferredUnit === 'metric') {
+      setUnit(loggedIn.preferredUnit);
+    }
+    setShowRecommendation(true);
+  };
+
+  const handleRegister = (payload) => {
+    const created = registerUser(payload);
+    setUser(created);
+    setShowRecommendation(true);
+  };
+
+  const handleLogout = () => {
+    logoutUser();
+    setUser(null);
+    setShowRecommendation(false);
+  };
+
+  const handleUpdatePreferences = (updates) => {
+    if (!user?.username) return;
+    const updated = updateUserPreferences(user.username, updates);
+    if (updated) setUser(updated);
+  };
+
+  const handleSelectRecommendedCity = (loc) => {
+    if (user?.username) {
+      const updatedUser = recordCitySearch(user.username, loc);
+      if (updatedUser) setUser(updatedUser);
+    }
+    loadForCoords(loc);
   };
 
   const handleLoadDemo = () => {
@@ -150,10 +213,13 @@ export default function App() {
     setLoading(false);
   };
 
+  const topRecommendedCities = user ? getTopRecommendedCities(user, 3) : [];
+  const warmAlertDays = user && weather ? getWarmForecastAlerts(user, weather.forecast) : [];
+
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
       <main className="flex-1 w-full max-w-2xl mx-auto px-4 py-8 sm:py-12">
-        <header className="flex items-center justify-between gap-4 mb-6">
+        <header className="flex flex-wrap items-center justify-between gap-3 mb-6">
           <div className="flex items-center gap-2.5">
             <div className="w-9 h-9 rounded-xl bg-sky-600 text-white flex items-center justify-center shadow-xs">
               <CloudSun className="w-5 h-5" aria-hidden="true" />
@@ -166,7 +232,41 @@ export default function App() {
             </div>
           </div>
 
-          <UnitToggle unit={unit} onChange={handleUnitChange} />
+          <div className="flex items-center gap-2">
+            <UnitToggle unit={unit} onChange={handleUnitChange} />
+
+            {user ? (
+              <div className="inline-flex items-center gap-1 rounded-xl border border-slate-200 bg-white p-1 shadow-xs">
+                <button
+                  type="button"
+                  onClick={() => setAccountModalOpen(true)}
+                  title="Account preferences"
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold text-slate-700 hover:bg-slate-100 transition cursor-pointer"
+                >
+                  <User className="w-3.5 h-3.5 text-sky-600" aria-hidden="true" />
+                  <span>{user.username}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleLogout}
+                  title="Log out"
+                  aria-label="Log out"
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer"
+                >
+                  <LogOut className="w-3.5 h-3.5" aria-hidden="true" />
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setAccountModalOpen(true)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-700 shadow-xs transition cursor-pointer"
+              >
+                <User className="w-3.5 h-3.5 text-sky-600" aria-hidden="true" />
+                Sign in
+              </button>
+            )}
+          </div>
         </header>
 
         <SearchBar
@@ -174,6 +274,16 @@ export default function App() {
           onDetectLocation={handleDetectLocation}
           isLoading={loading}
         />
+
+        {user && showRecommendation && topRecommendedCities.length > 0 && (
+          <RecommendationBanner
+            username={user.username}
+            topCities={topRecommendedCities}
+            currentCityName={weather?.location?.name}
+            onSelectCity={handleSelectRecommendedCity}
+            onDismiss={() => setShowRecommendation(false)}
+          />
+        )}
 
         {error && (
           <div
@@ -222,6 +332,13 @@ export default function App() {
         {!loading && weather && (
           <div className="mt-5">
             <CurrentWeatherCard weather={weather} unit={unit} />
+
+            <WarmAlertBanner
+              warmDays={warmAlertDays}
+              thresholdC={user?.warmThresholdC ?? 20}
+              unit={unit}
+            />
+
             <ForecastList forecast={weather.forecast} unit={unit} />
 
             <div className="mt-4 flex items-center justify-between px-1 text-xs text-slate-400">
@@ -243,6 +360,17 @@ export default function App() {
           </div>
         )}
       </main>
+
+      <AccountModal
+        isOpen={accountModalOpen}
+        onClose={() => setAccountModalOpen(false)}
+        user={user}
+        unit={unit}
+        onLogin={handleLogin}
+        onRegister={handleRegister}
+        onUpdatePreferences={handleUpdatePreferences}
+        onSelectRecommendedCity={handleSelectRecommendedCity}
+      />
     </div>
   );
 }
